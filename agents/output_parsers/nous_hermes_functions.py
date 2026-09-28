@@ -12,7 +12,6 @@ from langchain_core.outputs import ChatGeneration, Generation
 
 from langchain.agents.agent import AgentOutputParser
 from agents.output_parsers.utils import parse_tool_call, check_tool_call
-import ast
 
 class NousHermesFunctionsAgentOutputParser(AgentOutputParser):
     """Parses a message into agent action/finish.
@@ -24,7 +23,6 @@ class NousHermesFunctionsAgentOutputParser(AgentOutputParser):
     the tool and tool input.
 
     If one is not passed, then the AIMessage is assumed to be the final output.
-    It was add a 
     """
 
     @property
@@ -42,7 +40,7 @@ class NousHermesFunctionsAgentOutputParser(AgentOutputParser):
         pattern = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
         try:
             tool_calls = [parse_tool_call(t.strip()) for t in pattern.findall(message.content)]
-        except:
+        except Exception:
             raise OutputParserException(
                 f"Could not parse tool calls from message content: {message.content}. Please ensure that the tool calls are valid JSON."
             )

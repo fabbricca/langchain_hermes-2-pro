@@ -1,26 +1,54 @@
-# Local AI Function Calling with Nous Research Hermes 2 Pro and Langchain
+# LangChain function calling for Nous Hermes 2 Pro
 
-Welcome to the Local AI Function Calling repository! This project aims to provide a comprehensive guide and set of tools for deploying and utilizing the Nous Research Hermes 2 Pro Large Language Model (LLM) locally, along with the Langchain framework for efficient function calling.
+Adapters that let [Nous Research Hermes 2 Pro](https://huggingface.co/NousResearch/Hermes-2-Pro-Mistral-7B),
+run locally through Ollama, act as a tool-calling agent in [LangChain](https://github.com/langchain-ai/langchain).
 
-# Overview
-In recent times, the field of Artificial Intelligence (AI) has seen a surge in interest surrounding AI Agents and function calling capabilities within LLMs. This repository delves into the intricacies of deploying the Nous Research Hermes 2 Pro LLM locally and leveraging the Langchain framework to optimize function calling.
+Written in May 2024, when Hermes 2 Pro was one of the first open-weight models trained for
+function calling. At the time, LangChain's agents expected OpenAI's `function_call` message field.
+Hermes 2 Pro uses its own format instead: tool schemas go in the system prompt inside `<tools>` tags,
+and the model answers with JSON inside `<tool_call>` tags. This repository bridges the two formats.
 
-# Key Features
-    Local Deployment: Utilize the Nous Research Hermes 2 Pro LLM locally, ensuring privacy and security.
-    Langchain Integration: Seamlessly integrate Langchain, a powerful framework for function calling, into your AI workflow.
-    Comprehensive Setup: Step-by-step instructions for setting up agents, parsers, prompts, and tools to maximize LLM performance.
-    Extensible Tools: Incorporate a variety of tools for error handling, file management, and web searching to enhance functionality.
+## How it works
 
-# Getting Started
-To get started, simply follow the instructions outlined in the documentation provided in this repository. From setting up the environment to configuring agents and tools, we've got you covered every step of the way.
+One agent turn:
 
-# Contribution Guidelines
-Contributions to this project are welcome! Whether it's bug fixes, feature enhancements, or documentation improvements, feel free to submit pull requests or open issues.
+```
+prompt (tools in <tools>) ──► Hermes 2 Pro ──► "<tool_call>{...}</tool_call>"
+        ▲                                               │
+        │                                   output parser: extract, repair, validate
+        │                                               │
+   scratchpad: previous calls + <tool_response>  ◄── AgentExecutor runs the tool
+```
 
-# License
-This project is licensed under the MIT License, allowing for open collaboration and modification.
+| component | file | role |
+|---|---|---|
+| Prompt | `prompts/template.yaml`, `prompts/prompt.py` | Hermes 2 Pro's system prompt, with the tool schemas and the `FunctionCall` JSON schema |
+| Agent | `agents/nous_hermes_functions_agent/base.py` | `create_nous_hermes_functions_agent`: scratchpad → prompt → LLM → parser, as a LangChain `Runnable` |
+| Output parser | `agents/output_parsers/` | pulls every `<tool_call>` block out of the reply and turns it into `AgentAction`s (several per turn are supported). A reply without a tool call becomes `AgentFinish` |
+| Repair and validation | `agents/output_parsers/utils.py` | tolerates the small model's JSON mistakes (Python literals, single quotes, trailing text). Unknown tools and wrong argument sets are sent to an error tool instead of raising an exception |
+| Scratchpad | `agents/format_scratchpad/` | returns each tool result to the model inside `<tool_response>` tags, the format it was trained on |
+| Tools | `tools/tools.py` | web search (DuckDuckGo), file writing, a toy word-length tool, and `handle_tools_error` |
 
-# Acknowledgements
-I would like to express my gratitude to the developers of Nous Research Hermes 2 Pro and Langchain for their invaluable contributions to the field of AI. Additionally, I'll extend my thanks to the open-source community for their ongoing support and feedback.
+The error tool is the main design choice. A 7B model often calls a tool with missing or extra
+arguments. Instead of failing the run, the parser redirects the call to `handle_tools_error`,
+which tells the model the expected and received arguments, so it can correct itself on the next turn.
 
-Feel free to customize and expand upon this template as needed for your specific project requirements!
+## Running it
+
+```bash
+ollama pull adrienbrault/nous-hermes2pro:Q5_K_S
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python main.py          # run from the repository root; type /bye to exit
+```
+
+## Limitations
+
+- The JSON repair uses heuristics tuned on the failures observed in 2024, not a grammar-constrained decoder.
+- It targets the LangChain agent API of mid-2024 (`AgentExecutor`). Newer LangChain versions and
+  model runtimes support native tool calling for Hermes-format models, which makes most of this
+  unnecessary today.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
